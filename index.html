@@ -4,8 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <meta name="theme-color" content="#18231e">
-<script src="./puzzle.js?v=3" defer></script>
-<title>Zermatt-Puzzle</title>
+<title>Zermatt-Foto</title>
 <style>
 :root{color-scheme:dark;--bg:#111915;--panel:#1c2822;--edge:#39483f;--gold:#e2b866;--text:#f5f2e9;--muted:#c3cbbf}
 *{box-sizing:border-box}body{margin:0;background:radial-gradient(ellipse at top,#26382d,var(--bg) 68%);color:var(--text);font:16px/1.45 system-ui,-apple-system,"Segoe UI",sans-serif;min-height:100vh;padding:24px 14px 36px}
@@ -37,16 +36,16 @@ main{max-width:780px;margin:0 auto}.eyebrow{text-transform:uppercase;letter-spac
 <body>
 <main>
 <p class="eyebrow">RobyK · Bildpuzzle</p>
-<h1>Zermatt-Puzzle</h1>
-<p class="intro">Tippe einen Stein an und drücke «Drehen». Zum Tauschen tippst du zwei Steine nacheinander an.</p>
+<h1>Zermatt-Foto</h1>
+<p class="intro">Das Puzzle besteht aus 36 Steinen. Tippe einen Stein an und drücke «Drehen». Zum Tauschen tippst du zwei Steine nacheinander an.</p>
 <section class="panel" id="game" aria-label="Bildpuzzle">
 <div class="preview-notice">
-<p>Die Spielsteuerung konnte nicht geladen werden. Öffne die Spielseite in Safari oder lade sie neu.</p>
-<a href="https://die-alte-gasse-bildpuzzle.violetcocoa18.chatgpt.site/" target="_blank" rel="noopener">Spielseite öffnen</a>
+<p>Diese Ansicht zeigt nur das Bild. Öffne zum Spielen die Spielseite im Browser.</p>
+<a href="https://die-alte-gasse-bildpuzzle.violetcocoa18.chatgpt.site/" target="_blank" rel="noopener">Puzzle im Browser spielen</a>
 </div>
 <div class="toolbar" hidden>
 <label for="size">Schwierigkeit</label>
-<select disabled id="size" aria-label="Anzahl der Puzzlefelder"><option value="4">Mittel · 4 × 4</option><option value="5">Knifflig · 5 × 5</option><option value="6" selected>Schwer · 6 × 6</option></select>
+<select disabled id="size" aria-label="Anzahl der Puzzlefelder"><option value="3">Leicht · 3 × 3</option><option value="4">Mittel · 4 × 4</option><option value="5">Knifflig · 5 × 5</option><option value="6" selected>Schwer · 6 × 6</option></select>
 <button class="primary" id="shuffle" disabled>Mischen</button>
 <button id="reset" disabled>Neu beginnen</button>
 <span class="spacer"></span>
@@ -94,6 +93,168 @@ main{max-width:780px;margin:0 auto}.eyebrow{text-transform:uppercase;letter-spac
 <p class="message" id="message" aria-live="polite" hidden></p>
 <p class="instructions" hidden>Mit der Maus kannst du die Steine auch aufeinanderziehen.</p>
 </section>
+<p class="credit">Das Bild bleibt in dieser Datei gespeichert; zum Spielen ist keine Internetverbindung nötig.</p>
 </main>
+<script>
+(() => {
+  const board = document.querySelector('#board');
+  const size = document.querySelector('#size');
+  const shuffleButton = document.querySelector('#shuffle');
+  const resetButton = document.querySelector('#reset');
+  const hint = document.querySelector('#hint');
+  const rotateButton = document.querySelector('#rotate');
+  const progress = document.querySelector('#progress');
+  const movesLabel = document.querySelector('#moves');
+  const message = document.querySelector('#message');
+  let tiles = Array.from(board.children);
+  let n = Number(size.value);
+  let startingLayout = tiles.map(tile => ({
+    piece: Number(tile.dataset.piece),
+    turns: Number(tile.dataset.turns),
+  }));
+  let layout = startingLayout.map(tile => ({ ...tile }));
+  let selected = -1;
+  let canSwapSelection = false;
+  let moves = 0;
+  let gesture = null;
+  let ignorePointerClick = false;
+
+  function render() {
+    tiles.forEach((tile, position) => {
+      const { piece, turns } = layout[position];
+      const column = piece % n;
+      const row = Math.floor(piece / n);
+      tile.dataset.piece = piece;
+      tile.dataset.position = position;
+      tile.dataset.turns = turns;
+      tile.firstElementChild.style.backgroundPosition = `${column * 100 / (n - 1)}% ${row * 100 / (n - 1)}%`;
+      tile.classList.toggle('selected', selected === position);
+      tile.setAttribute('aria-pressed', String(selected === position));
+    });
+    const correct = layout.filter(({ piece, turns }, position) => piece === position && turns === 0).length;
+    const won = correct === layout.length;
+    progress.textContent = `${correct} / ${layout.length}`;
+    movesLabel.textContent = moves;
+    rotateButton.disabled = selected < 0;
+    message.classList.toggle('win', won);
+    if (won) message.textContent = 'Geschafft! Das Bild ist wieder zusammengesetzt.';
+    else if (canSwapSelection) message.textContent = 'Stein ausgewählt. Drehe ihn oder tippe auf einen zweiten Stein.';
+    else if (selected >= 0) message.textContent = 'Drehe weiter oder wähle einen Stein neu aus.';
+    else message.textContent = 'Tippe einen Stein an.';
+  }
+
+  function setHint(visible) {
+    board.classList.toggle('hint', visible);
+    hint.setAttribute('aria-pressed', String(visible));
+    hint.textContent = visible ? 'Vorschaubild aus' : 'Vorschaubild';
+  }
+
+  function restart() {
+    selected = -1;
+    canSwapSelection = false;
+    moves = 0;
+    layout = startingLayout.map(tile => ({ ...tile }));
+    setHint(false);
+    render();
+  }
+
+  function shuffle() {
+    startingLayout = Array.from({ length: n * n }, (_, piece) => ({
+      piece,
+      turns: Math.floor(Math.random() * 4),
+    }));
+    for (let i = startingLayout.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [startingLayout[i], startingLayout[j]] = [startingLayout[j], startingLayout[i]];
+    }
+    if (startingLayout.every(({ piece }, position) => piece === position)) {
+      [startingLayout[0], startingLayout[1]] = [startingLayout[1], startingLayout[0]];
+    }
+    if (startingLayout.every(({ turns }) => turns === 0)) {
+      startingLayout[0].turns = 1;
+    }
+    restart();
+  }
+
+  function swap(first, second) {
+    [layout[first], layout[second]] = [layout[second], layout[first]];
+    moves++;
+    selected = -1;
+    canSwapSelection = false;
+    render();
+  }
+
+  function activate(position) {
+    if (canSwapSelection && selected !== position) {
+      swap(selected, position);
+    } else {
+      selected = canSwapSelection && selected === position ? -1 : position;
+      canSwapSelection = selected >= 0;
+      render();
+    }
+  }
+
+  board.addEventListener('click', event => {
+    const tile = event.target.closest('.tile');
+    if (tile && !(event.detail && ignorePointerClick)) activate(Number(tile.dataset.position));
+    ignorePointerClick = false;
+  });
+  board.addEventListener('pointerdown', event => {
+    ignorePointerClick = false;
+    const tile = event.target.closest('.tile');
+    if (!tile || event.pointerType !== 'mouse' || event.button !== 0) return;
+    gesture = { id: event.pointerId, tile, x: event.clientX, y: event.clientY };
+  });
+  window.addEventListener('pointerup', event => {
+    if (!gesture || gesture.id !== event.pointerId) return;
+    const { x, y, tile } = gesture;
+    gesture = null;
+    if (Math.hypot(event.clientX - x, event.clientY - y) <= 9) return;
+    ignorePointerClick = true;
+    const target = document.elementFromPoint(event.clientX, event.clientY)?.closest('.tile');
+    if (target && target !== tile && board.contains(target)) {
+      swap(Number(tile.dataset.position), Number(target.dataset.position));
+    }
+  });
+  window.addEventListener('pointercancel', () => { gesture = null; });
+
+  size.addEventListener('change', () => {
+    n = Number(size.value);
+    board.style.setProperty('--n', n);
+    board.style.setProperty('--zoom', `${n * 100}%`);
+    tiles = Array.from({ length: n * n }, (_, i) => {
+      const tile = document.createElement('button');
+      tile.type = 'button';
+      tile.className = 'tile';
+      tile.setAttribute('aria-label', `Bildfeld an Position ${i + 1}`);
+      const photo = document.createElement('span');
+      photo.className = 'tile-photo';
+      photo.setAttribute('aria-hidden', 'true');
+      tile.appendChild(photo);
+      return tile;
+    });
+    board.replaceChildren(...tiles);
+    shuffle();
+  });
+
+  shuffleButton.addEventListener('click', shuffle);
+  resetButton.addEventListener('click', restart);
+  hint.addEventListener('click', () => setHint(!board.classList.contains('hint')));
+  rotateButton.addEventListener('click', () => {
+    if (selected < 0) return;
+    const tile = layout[selected];
+    tile.turns = (tile.turns + 1) % 4;
+    canSwapSelection = false;
+    selected = -1;
+    moves++;
+    render();
+  });
+  render();
+  [...tiles, size, shuffleButton, resetButton, hint].forEach(control => { control.disabled = false; });
+  const game = document.querySelector('#game');
+  game.querySelectorAll('[hidden]').forEach(element => { element.hidden = false; });
+  game.setAttribute('data-ready', '');
+})();
+</script>
 </body>
 </html>
